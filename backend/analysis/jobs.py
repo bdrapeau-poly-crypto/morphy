@@ -9,6 +9,7 @@ from analysis.pipeline import process_game
 from analysis.stockfish_worker import load_fen_cache_from_db, stockfish_pool
 from db.database import SessionLocal
 from db.models import Game, IngestJob
+from ingestion.chess_com import INGEST_MONTHS_BACK, player_exists
 from ingestion.pipeline import ingest_user_games
 from profiler.clusterer import refresh_weakness_profile
 
@@ -127,6 +128,28 @@ async def run_ingest_job(job_id: str) -> None:
         logger.info("Starting ingest job %s for %s", job_id, job.username)
         _update_job(db, job, status="ingesting")
 
+        # Fail fast on a username that doesn't exist. Without this, a typo (or a
+        # pasted profile URL) runs a full no-op ingest and lands the user on an
+        # empty dashboard identical to a real account with no recent games.
+        # A lookup failure (Chess.com down, network blip) must not block the run,
+        # so only an authoritative "no such player" stops us.
+        try:
+            exists = await player_exists(job.username)
+        except Exception:
+            logger.warning("Job %s: player lookup failed, continuing", job_id, exc_info=True)
+            exists = True
+        if not exists:
+            _update_job(
+                db,
+                job,
+                status="failed",
+                error=(
+                    f"No Chess.com player named \"{job.username}\". "
+                    "Check the spelling and enter just the username, not a profile link."
+                ),
+            )
+            return
+
         def report_ingest_progress(count: int) -> None:
             _update_job(db, job, games_ingested=count)
 
@@ -142,6 +165,21 @@ async def run_ingest_job(job_id: str) -> None:
         )
         logger.info("Job %s ingested %d games", job_id, len(ingested_ids))
         _update_job(db, job, games_ingested=len(ingested_ids))
+
+        # A real account with nothing in the lookback window is a legitimate
+        # outcome, but silently completing sends the user to an empty dashboard
+        # with no explanation. Say what happened instead.
+        if not db.query(Game).filter_by(username=job.username).first():
+            _update_job(
+                db,
+                job,
+                status="failed",
+                error=(
+                    f"Found the account \"{job.username}\", but it has no games in the "
+                    f"last {INGEST_MONTHS_BACK} months. Play a few rated games and try again."
+                ),
+            )
+            return
 
         unanalyzed = (
             db.query(Game)

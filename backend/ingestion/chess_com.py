@@ -28,6 +28,31 @@ async def fetch_monthly_games(
     return resp.json().get("games", [])
 
 
+async def player_exists(username: str) -> bool:
+    """True if Chess.com has a public profile for this username.
+
+    The archives endpoint returns an empty 404 for both a typo'd username and a
+    real account with no games that month, so those two cases are indistinguishable
+    downstream. Checking the profile endpoint first lets us tell the user which
+    one they hit instead of dropping them on an empty dashboard.
+    """
+
+    username = username.strip().lower()
+    if not username:
+        return False
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{BASE_URL}/{username}",
+            headers={"User-Agent": "chess-coach-app/1.0"},
+            timeout=REQUEST_TIMEOUT,
+        )
+    if resp.status_code == 404:
+        return False
+    resp.raise_for_status()
+    return True
+
+
 def _month_range(months_back: int) -> list[tuple[int, int]]:
     """Return (year, month) pairs from months_back ago through today."""
 

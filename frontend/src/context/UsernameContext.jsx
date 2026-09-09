@@ -2,8 +2,17 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
 
 const STORAGE_KEY = "morphy_username";
 
-function normalizeUsername(raw) {
-  return raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+// Pasting a profile link instead of typing the username is the single most
+// common way people get this wrong, and stripping the URL characters blindly
+// turns "chess.com/member/gothamchess" into a garbage username that silently
+// finds nothing. Pull the handle out of any Chess.com URL shape first.
+const PROFILE_URL = /chess\.com\/(?:member|members|player)\/([^/?#]+)/i;
+
+export function normalizeUsername(raw) {
+  const text = raw.trim();
+  const fromUrl = text.match(PROFILE_URL);
+  const handle = fromUrl ? fromUrl[1] : text;
+  return handle.toLowerCase().replace(/[^a-z0-9_-]/g, "");
 }
 
 // localStorage throws in some contexts (Safari private mode, sandboxed
