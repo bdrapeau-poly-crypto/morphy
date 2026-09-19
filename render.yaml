@@ -16,7 +16,7 @@ services:
     # Starter: never sleeps (no 30-60s cold start) and ~0.5 CPU instead of the
     # free tier's ~0.1, so Stockfish analysis is faster and no longer gets
     # killed mid-job under sustained load.
-    plan: starter
+    plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /health
